@@ -1,0 +1,78 @@
+import requests
+import random
+import bs4
+import prettytable as pt
+import time
+class ProductScraper:
+    def __init__(self, product_name):  
+        self.product_name = product_name.replace(" ", "+")
+    def amazon_url(self):
+        return f"https://www.amazon.in/s?k={self.product_name}"
+    def flipkart_url(self):
+        return f"https://www.flipkart.com/search?q={self.product_name}"
+    def product_urls(self):
+        return {"amazon": self.amazon_url(), "flipkart": self.flipkart_url()}
+class WebScraper:
+    def __init__(self, product_scraper):  
+        self.headers = [
+            {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36'},
+            {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/119.0'},
+            {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36'}
+        ]
+        self.urls = product_scraper.product_urls()
+        self.htmls = self.get_htmls()
+    def make_request(self):
+        responses = {}
+        for site, url in self.urls.items():
+            try:
+                print(f"Scraping {site}...")
+                time.sleep(random.uniform(2, 5)) 
+                response = requests.get(url, headers=random.choice(self.headers))
+                responses[site] = {"status": response.status_code, "content": response.content}
+            except requests.exceptions.RequestException as e:
+                responses[site] = {"status": "Error", "error": str(e)}
+        return responses
+    def get_htmls(self):
+        responses = self.make_request()
+        return {site: bs4.BeautifulSoup(responses[site]["content"], "html.parser") if responses[site]["status"] == 200 else None for site in responses}
+    def extract_data(self, html, selectors):
+        elements = []
+        for selector in selectors:
+            elements.extend(html.select(selector))
+        return [el.get_text(strip=True) for el in elements if el.get_text(strip=True)]
+    def get_product_info(self):
+        product_info = {}
+        for site, html in self.htmls.items():
+            if html:
+                if site == "amazon":
+                    names = self.extract_data(html, ['h2 a span']) 
+                    prices = self.extract_data(html, ['span.a-price > span.a-offscreen'])  
+                elif site == "flipkart":
+                    names = self.extract_data(html, ['a.s1Q9rs', 'div._4rR01T']) 
+                    prices = self.extract_data(html, ['div._30jeq3._16Jk6d'])  
+                print(f"Extracted {site} products: {names[:5]}")  
+                print(f"Extracted {site} prices: {prices[:5]}") 
+
+                product_info[site] = {"names": names[:10], "prices": prices[:10]}
+            else:
+                product_info[site] = {"names": [], "prices": []}
+        return product_info
+class PriceComparison:
+    @staticmethod
+    def print_table(product_info, site):
+        table = pt.PrettyTable()
+        table.field_names = ["S.NO", f"{site.capitalize()} Product Name", "Price (INR)"]
+
+        if not product_info[site]["names"]:  # If no products found
+            table.add_row(["-", "No products found", "-"])
+        else:
+            for i, (name, price) in enumerate(zip(product_info[site]["names"], product_info[site]["prices"]), start=1):
+                table.add_row([i, name, f"₹{price}" if price else "Price Not Available"])
+                print(table)
+if __name__ == "__main__":
+    product_name = input("Enter Product name to search for: ")
+    product_scraper = ProductScraper(product_name)
+    web_scraper = WebScraper(product_scraper)
+    product_info = web_scraper.get_product_info()
+    for site in ["flipkart", "amazon"]:
+        PriceComparison.print_table(product_info, site)
